@@ -1,5 +1,9 @@
 # app.py
-from fastapi import FastAPI, Depends, HTTPException, status
+from datetime import date
+
+from fastapi import FastAPI, Depends, HTTPException, status, Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from db import Base, engine, SessionLocal
@@ -9,14 +13,42 @@ from schemas import CannedKey, CannedAnswerOut, CannedAnswerIn
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Canned Answers Service")
+templates = Jinja2Templates(directory="templates")
 
 
+# --- DB session dependency -----------------------------------
 def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+
+# --- UI day view ---------------------------------------------
+@app.get("/ui/day", response_class=HTMLResponse)
+def ui_day(
+    day: date,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    # convert to same format you store in DB: "YYYY-MM-DD"
+    day_str = day.isoformat()
+
+    rows = (
+        db.query(CannedAnswer)
+        .filter(CannedAnswer.date == day_str)
+        .order_by(
+            CannedAnswer.pf_meeting_id,
+            CannedAnswer.race_number,
+            CannedAnswer.prompt_type,
+        )
+        .all()
+    )
+    return templates.TemplateResponse(
+        "ui_day.html",
+        {"request": request, "rows": rows, "date": day_str},
+    )
 
 
 # Healthcheck
@@ -53,7 +85,10 @@ def get_canned_answer(
     )
 
     if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No cached answer")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No cached answer",
+        )
 
     return CannedAnswerOut(
         date=row.date,

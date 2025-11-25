@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Canned answers for {{ date }}</title>
+</head>
+<body>
+  <h1>Canned answers for {{ date }}</h1>
+  <table border="1" cellpadding="4">
+    <tr>
+      <th>Meeting ID</th>
+      <th>Race</th>
+      <th>Type</th>
+      <th>Text</th>
+    </tr>
+    {% for row in rows %}
+      <tr>
+        <td>{{ row.pf_meeting_id }}</td>
+        <td>{{ row.race_number }}</td>
+        <td>{{ row.prompt_type }}</td>
+        <td><pre>{{ row.prompt_text }}</pre></td>
+      </tr>
+    {% endfor %}
+  </table>
+</body>
+</html>
