@@ -3,7 +3,6 @@ from datetime import date
 
 from fastapi import FastAPI, Depends, HTTPException, status, Request
 from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 
 from db import Base, engine, SessionLocal
@@ -13,7 +12,6 @@ from schemas import CannedKey, CannedAnswerOut, CannedAnswerIn
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Canned Answers Service")
-templates = Jinja2Templates(directory="templates")
 
 
 # --- DB session dependency -----------------------------------
@@ -25,15 +23,18 @@ def get_db():
         db.close()
 
 
-# --- UI day view ---------------------------------------------
+from datetime import date
+from sqlalchemy.orm import Session
+
+# ...
+
 @app.get("/ui/day", response_class=HTMLResponse)
 def ui_day(
-    day: date,
-    request: Request,
+    date: date,
     db: Session = Depends(get_db),
 ):
-    # convert to same format you store in DB: "YYYY-MM-DD"
-    day_str = day.isoformat()
+    # convert to the same "YYYY-MM-DD" string format stored in the DB
+    day_str = date.isoformat()
 
     rows = (
         db.query(CannedAnswer)
@@ -45,10 +46,43 @@ def ui_day(
         )
         .all()
     )
-    return templates.TemplateResponse(
-        "ui_day.html",
-        {"request": request, "rows": rows, "date": day_str},
+
+    # build a simple HTML table
+    row_html = "".join(
+        f"<tr>"
+        f"<td>{r.pf_meeting_id}</td>"
+        f"<td>{r.race_number}</td>"
+        f"<td>{r.prompt_type}</td>"
+        f"<td><pre>{(r.prompt_text or '')}</pre></td>"
+        f"<td><pre>{(r.raw_response or '')}</pre></td>"
+        f"</tr>"
+        for r in rows
     )
+
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Canned answers for {day_str}</title>
+      </head>
+      <body>
+        <h1>Canned answers for {day_str}</h1>
+        <table border="1" cellpadding="4" cellspacing="0">
+          <tr>
+            <th>Meeting ID</th>
+            <th>Race</th>
+            <th>Type</th>
+            <th>Prompt</th>
+            <th>Raw response</th>
+          </tr>
+          {row_html}
+        </table>
+      </body>
+    </html>
+    """
+
+    return HTMLResponse(content=html)
 
 
 # Healthcheck
