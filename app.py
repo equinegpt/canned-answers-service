@@ -84,6 +84,54 @@ def ui_day(
 
     return HTMLResponse(content=html)
 
+@app.get("/ui/all", response_class=HTMLResponse)
+def ui_all(db: Session = Depends(get_db)):
+    rows = (
+        db.query(CannedAnswer)
+        .order_by(
+            CannedAnswer.date,
+            CannedAnswer.pf_meeting_id,
+            CannedAnswer.race_number,
+            CannedAnswer.prompt_type,
+        )
+        .all()
+    )
+
+    row_html = "".join(
+        f"<tr>"
+        f"<td>{r.date}</td>"
+        f"<td>{r.pf_meeting_id}</td>"
+        f"<td>{r.race_number}</td>"
+        f"<td>{r.prompt_type}</td>"
+        f"<td><pre>{(r.prompt_text or '')}</pre></td>"
+        f"</tr>"
+        for r in rows
+    )
+
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>All canned answers</title>
+      </head>
+      <body>
+        <h1>All canned answers</h1>
+        <table border="1" cellpadding="4" cellspacing="0">
+          <tr>
+            <th>Date</th>
+            <th>Meeting ID</th>
+            <th>Race</th>
+            <th>Type</th>
+            <th>Prompt</th>
+          </tr>
+          {row_html}
+        </table>
+      </body>
+    </html>
+    """
+
+    return HTMLResponse(content=html)
 
 # Healthcheck
 @app.get("/health", tags=["system"])
