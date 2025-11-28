@@ -109,13 +109,9 @@ def ui_day(
 @app.get("/ui/all", response_class=HTMLResponse)
 def ui_all(db: Session = Depends(get_db)):
     """
-    HTML table of all canned answers, but only for today + future
-    (in AU/Melbourne). We filter in Python so it works whether
-    the DB column is DATE or ISO string.
+    HTML table of ALL canned answers in the DB (no date filter),
+    ordered by date / meeting / race / type.
     """
-    today = _today_melbourne()
-
-    # Pull everything, then filter in Python – small table, safe to do.
     rows = (
         db.query(CannedAnswer)
         .order_by(
@@ -127,25 +123,6 @@ def ui_all(db: Session = Depends(get_db)):
         .all()
     )
 
-    filtered_rows = []
-    for r in rows:
-        raw = r.date
-        row_date: date | None = None
-
-        if isinstance(raw, date) and not isinstance(raw, datetime):
-            row_date = raw
-        elif isinstance(raw, datetime):
-            row_date = raw.date()
-        else:
-            # assume string / other – try ISO parse
-            try:
-                row_date = date.fromisoformat(str(raw).split("T", 1)[0])
-            except Exception:
-                continue
-
-        if row_date >= today:
-            filtered_rows.append(r)
-
     row_html = "".join(
         f"<tr>"
         f"<td>{getattr(r, 'date', '')}</td>"
@@ -155,7 +132,7 @@ def ui_all(db: Session = Depends(get_db)):
         f"<td>{r.use_count or 0}</td>"
         f"<td><pre>{(r.prompt_text or '')}</pre></td>"
         f"</tr>"
-        for r in filtered_rows
+        for r in rows
     )
 
     html = f"""
@@ -163,10 +140,10 @@ def ui_all(db: Session = Depends(get_db)):
     <html>
       <head>
         <meta charset="utf-8" />
-        <title>All canned answers (today + future)</title>
+        <title>All canned answers</title>
       </head>
       <body>
-        <h1>All canned answers (today + future)</h1>
+        <h1>All canned answers</h1>
         <table border="1" cellpadding="4" cellspacing="0">
           <tr>
             <th>Date</th>
@@ -183,7 +160,6 @@ def ui_all(db: Session = Depends(get_db)):
     """
 
     return HTMLResponse(content=html)
-
 
 # --- Healthcheck ---------------------------------------------
 @app.get("/health", tags=["system"])
