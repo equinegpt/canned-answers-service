@@ -1,9 +1,10 @@
 # app.py
-from datetime import date
+from datetime import date, datetime
 
-from fastapi import FastAPI, Depends, HTTPException, status, Request
+from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
+from zoneinfo import ZoneInfo
 
 from db import Base, engine, SessionLocal
 from models import CannedAnswer
@@ -23,22 +24,20 @@ def get_db():
         db.close()
 
 
-from datetime import date
-from sqlalchemy.orm import Session
+def _today_melb() -> date:
+    return datetime.now(ZoneInfo("Australia/Melbourne")).date()
 
-# ...
 
+# --- UI: single day ------------------------------------------
 @app.get("/ui/day", response_class=HTMLResponse)
 def ui_day(
     date: date,
     db: Session = Depends(get_db),
 ):
-    # convert to the same "YYYY-MM-DD" string format stored in the DB
-    day_str = date.isoformat()
-
+    # CannedAnswer.date is a Date column, so compare as date not string
     rows = (
         db.query(CannedAnswer)
-        .filter(CannedAnswer.date == day_str)
+        .filter(CannedAnswer.date == date)
         .order_by(
             CannedAnswer.pf_meeting_id,
             CannedAnswer.race_number,
@@ -47,17 +46,19 @@ def ui_day(
         .all()
     )
 
-    # build a simple HTML table
     row_html = "".join(
         f"<tr>"
         f"<td>{r.pf_meeting_id}</td>"
         f"<td>{r.race_number}</td>"
         f"<td>{r.prompt_type}</td>"
+        f"<td>{r.use_count}</td>"
         f"<td><pre>{(r.prompt_text or '')}</pre></td>"
         f"<td><pre>{(r.raw_response or '')}</pre></td>"
         f"</tr>"
         for r in rows
     )
+
+    day_str = date.isoformat()
 
     html = f"""
     <!DOCTYPE html>
@@ -73,6 +74,7 @@ def ui_day(
             <th>Meeting ID</th>
             <th>Race</th>
             <th>Type</th>
+            <th>Use count</th>
             <th>Prompt</th>
             <th>Raw response</th>
           </tr>
@@ -84,10 +86,15 @@ def ui_day(
 
     return HTMLResponse(content=html)
 
+
+# --- UI: all (today + future only) ---------------------------
 @app.get("/ui/all", response_class=HTMLResponse)
 def ui_all(db: Session = Depends(get_db)):
+    today = _today_melb()
+
     rows = (
         db.query(CannedAnswer)
+        .filter(CannedAnswer.date >= today)  # 🚫 hide past days
         .order_by(
             CannedAnswer.date,
             CannedAnswer.pf_meeting_id,
@@ -103,6 +110,7 @@ def ui_all(db: Session = Depends(get_db)):
         f"<td>{r.pf_meeting_id}</td>"
         f"<td>{r.race_number}</td>"
         f"<td>{r.prompt_type}</td>"
+        f"<td>{r.use_count}</td>"
         f"<td><pre>{(r.prompt_text or '')}</pre></td>"
         f"</tr>"
         for r in rows
@@ -113,16 +121,17 @@ def ui_all(db: Session = Depends(get_db)):
     <html>
       <head>
         <meta charset="utf-8" />
-        <title>All canned answers</title>
+        <title>All canned answers (today + future)</title>
       </head>
       <body>
-        <h1>All canned answers</h1>
+        <h1>All canned answers (today + future)</h1>
         <table border="1" cellpadding="4" cellspacing="0">
           <tr>
             <th>Date</th>
             <th>Meeting ID</th>
             <th>Race</th>
             <th>Type</th>
+            <th>Use count</th>
             <th>Prompt</th>
           </tr>
           {row_html}
@@ -133,13 +142,14 @@ def ui_all(db: Session = Depends(get_db)):
 
     return HTMLResponse(content=html)
 
-# Healthcheck
+
+# --- Healthcheck ---------------------------------------------
 @app.get("/health", tags=["system"])
 def health():
     return {"status": "ok"}
 
 
-# GET /canned?date=...&pf_meeting_id=...&race_number=...&prompt_type=...
+# --- API: GET /canned ----------------------------------------
 @app.get("/canned", response_model=CannedAnswerOut, tags=["canned"])
 def get_canned_answer(
     date: str,
@@ -172,6 +182,11 @@ def get_canned_answer(
             detail="No cached answer",
         )
 
+    # 🔢 Increment use_count every time this cached answer is served
+    row.use_count = (row.use_count or 0) + 1
+    db.commit()
+    db.refresh(row)
+
     return CannedAnswerOut(
         date=row.date,
         pf_meeting_id=row.pf_meeting_id,
@@ -181,7 +196,7 @@ def get_canned_answer(
     )
 
 
-# POST /canned  (idempotent "first write wins")
+# --- API: POST /canned (idempotent) --------------------------
 @app.post("/canned", response_model=CannedAnswerOut, tags=["canned"])
 def create_canned_answer(
     payload: CannedAnswerIn,
@@ -216,6 +231,7 @@ def create_canned_answer(
         prompt_type=payload.prompt_type,
         prompt_text=payload.prompt_text,
         raw_response=payload.raw_response,
+        # use_count starts at 0 by default
     )
     db.add(row)
     db.commit()
