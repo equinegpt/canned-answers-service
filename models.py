@@ -23,9 +23,18 @@ class CannedAnswer(Base):
     prompt_text = Column(Text, nullable=True)        # "Value Play", "Best at Conditions", etc
     raw_response = Column(Text, nullable=False)      # raw iReel text
 
+    # Usage metrics
+    # How many times this cached answer has been served/used
+    use_count = Column(Integer, nullable=False, default=0)
+
     # Audit
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
 
     __table_args__ = (
         UniqueConstraint(
