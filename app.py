@@ -24,17 +24,24 @@ def get_db():
         db.close()
 
 
-def _today_melb() -> date:
+def _today_melbourne() -> date:
+    """Today in AU/Melbourne, for filtering UI to 'today + future'."""
     return datetime.now(ZoneInfo("Australia/Melbourne")).date()
 
 
-# --- UI: single day ------------------------------------------
+# --- UI: per-day view ----------------------------------------
 @app.get("/ui/day", response_class=HTMLResponse)
 def ui_day(
     date: date,
     db: Session = Depends(get_db),
 ):
-    # CannedAnswer.date is a Date column, so compare as date not string
+    """
+    Simple HTML view of all canned answers for a given date.
+
+    Called as: /ui/day?date=2025-11-29
+    """
+
+    # First try matching with a true DATE value
     rows = (
         db.query(CannedAnswer)
         .filter(CannedAnswer.date == date)
@@ -46,29 +53,40 @@ def ui_day(
         .all()
     )
 
+    # Fallback in case legacy rows stored date as a string
+    if not rows:
+        rows = (
+            db.query(CannedAnswer)
+            .filter(CannedAnswer.date == date.isoformat())
+            .order_by(
+                CannedAnswer.pf_meeting_id,
+                CannedAnswer.race_number,
+                CannedAnswer.prompt_type,
+            )
+            .all()
+        )
+
     row_html = "".join(
         f"<tr>"
         f"<td>{r.pf_meeting_id}</td>"
         f"<td>{r.race_number}</td>"
         f"<td>{r.prompt_type}</td>"
-        f"<td>{r.use_count}</td>"
+        f"<td>{r.use_count or 0}</td>"
         f"<td><pre>{(r.prompt_text or '')}</pre></td>"
         f"<td><pre>{(r.raw_response or '')}</pre></td>"
         f"</tr>"
         for r in rows
     )
 
-    day_str = date.isoformat()
-
     html = f"""
     <!DOCTYPE html>
     <html>
       <head>
         <meta charset="utf-8" />
-        <title>Canned answers for {day_str}</title>
+        <title>Canned answers for {date.isoformat()}</title>
       </head>
       <body>
-        <h1>Canned answers for {day_str}</h1>
+        <h1>Canned answers for {date.isoformat()}</h1>
         <table border="1" cellpadding="4" cellspacing="0">
           <tr>
             <th>Meeting ID</th>
@@ -87,14 +105,19 @@ def ui_day(
     return HTMLResponse(content=html)
 
 
-# --- UI: all (today + future only) ---------------------------
+# --- UI: all (today + future) --------------------------------
 @app.get("/ui/all", response_class=HTMLResponse)
 def ui_all(db: Session = Depends(get_db)):
-    today = _today_melb()
+    """
+    HTML table of all canned answers, but only for today + future
+    (in AU/Melbourne). We filter in Python so it works whether
+    the DB column is DATE or ISO string.
+    """
+    today = _today_melbourne()
 
+    # Pull everything, then filter in Python – small table, safe to do.
     rows = (
         db.query(CannedAnswer)
-        .filter(CannedAnswer.date >= today)  # 🚫 hide past days
         .order_by(
             CannedAnswer.date,
             CannedAnswer.pf_meeting_id,
@@ -104,16 +127,35 @@ def ui_all(db: Session = Depends(get_db)):
         .all()
     )
 
+    filtered_rows = []
+    for r in rows:
+        raw = r.date
+        row_date: date | None = None
+
+        if isinstance(raw, date) and not isinstance(raw, datetime):
+            row_date = raw
+        elif isinstance(raw, datetime):
+            row_date = raw.date()
+        else:
+            # assume string / other – try ISO parse
+            try:
+                row_date = date.fromisoformat(str(raw).split("T", 1)[0])
+            except Exception:
+                continue
+
+        if row_date >= today:
+            filtered_rows.append(r)
+
     row_html = "".join(
         f"<tr>"
-        f"<td>{r.date}</td>"
+        f"<td>{getattr(r, 'date', '')}</td>"
         f"<td>{r.pf_meeting_id}</td>"
         f"<td>{r.race_number}</td>"
         f"<td>{r.prompt_type}</td>"
-        f"<td>{r.use_count}</td>"
+        f"<td>{r.use_count or 0}</td>"
         f"<td><pre>{(r.prompt_text or '')}</pre></td>"
         f"</tr>"
-        for r in rows
+        for r in filtered_rows
     )
 
     html = f"""
@@ -149,7 +191,7 @@ def health():
     return {"status": "ok"}
 
 
-# --- API: GET /canned ----------------------------------------
+# --- JSON API: get / create ----------------------------------
 @app.get("/canned", response_model=CannedAnswerOut, tags=["canned"])
 def get_canned_answer(
     date: str,
@@ -158,6 +200,11 @@ def get_canned_answer(
     prompt_type: str,
     db: Session = Depends(get_db),
 ):
+    """
+    Fetch a cached answer by key.
+
+    Side-effect: increments use_count each time it's read.
+    """
     key = CannedKey(
         date=date,
         pf_meeting_id=pf_meeting_id,
@@ -182,7 +229,7 @@ def get_canned_answer(
             detail="No cached answer",
         )
 
-    # 🔢 Increment use_count every time this cached answer is served
+    # 🔢 bump use_count on each read
     row.use_count = (row.use_count or 0) + 1
     db.commit()
     db.refresh(row)
@@ -196,13 +243,14 @@ def get_canned_answer(
     )
 
 
-# --- API: POST /canned (idempotent) --------------------------
 @app.post("/canned", response_model=CannedAnswerOut, tags=["canned"])
 def create_canned_answer(
     payload: CannedAnswerIn,
     db: Session = Depends(get_db),
 ):
-    # Check if already exists (first-answer-wins)
+    """
+    Idempotent create: first write wins.
+    """
     existing = (
         db.query(CannedAnswer)
         .filter_by(
@@ -215,7 +263,6 @@ def create_canned_answer(
     )
 
     if existing:
-        # Return existing row unchanged
         return CannedAnswerOut(
             date=existing.date,
             pf_meeting_id=existing.pf_meeting_id,
@@ -231,7 +278,7 @@ def create_canned_answer(
         prompt_type=payload.prompt_type,
         prompt_text=payload.prompt_text,
         raw_response=payload.raw_response,
-        # use_count starts at 0 by default
+        use_count=0,  # new rows start at 0
     )
     db.add(row)
     db.commit()
