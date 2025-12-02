@@ -1,8 +1,17 @@
 # app.py
 from datetime import date, datetime
+from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import (
+    FastAPI,
+    Depends,
+    Query,
+    Request,
+    HTTPException,
+    status,
+)
 from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from zoneinfo import ZoneInfo
 
@@ -13,10 +22,11 @@ from schemas import CannedKey, CannedAnswerOut, CannedAnswerIn
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Canned Answers Service")
+templates = Jinja2Templates(directory="templates")
 
 
 # --- DB session dependency -----------------------------------
-def get_db():
+def get_db() -> Session:
     db = SessionLocal()
     try:
         yield db
@@ -107,14 +117,27 @@ def ui_day(
 
 # --- UI: all (today + future) --------------------------------
 @app.get("/ui/all", response_class=HTMLResponse)
-def ui_all(db: Session = Depends(get_db)):
+def ui_all(
+    request: Request,
+    db: Session = Depends(get_db),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+):
     """
-    HTML table of ALL canned answers in the DB (no date filter),
-    ordered by date / meeting / race / type.
+    Admin-style view: all canned answers from today onwards,
+    with optional date range filtering.
     """
-    rows = (
-        db.query(CannedAnswer)
-        .order_by(
+    today = _today_melbourne()
+
+    q = db.query(CannedAnswer).filter(CannedAnswer.date >= today)
+
+    if start_date:
+        q = q.filter(CannedAnswer.date >= start_date)
+    if end_date:
+        q = q.filter(CannedAnswer.date <= end_date)
+
+    answers = (
+        q.order_by(
             CannedAnswer.date,
             CannedAnswer.pf_meeting_id,
             CannedAnswer.race_number,
@@ -123,48 +146,60 @@ def ui_all(db: Session = Depends(get_db)):
         .all()
     )
 
-    row_html = "".join(
-        f"<tr>"
-        f"<td>{getattr(r, 'date', '')}</td>"
-        f"<td>{r.pf_meeting_id}</td>"
-        f"<td>{r.race_number}</td>"
-        f"<td>{r.prompt_type}</td>"
-        f"<td>{r.use_count or 0}</td>"
-        f"<td><pre>{(r.prompt_text or '')}</pre></td>"
-        f"</tr>"
-        for r in rows
+    # Distinct dates to render as "jump to" buttons
+    distinct_dates = [
+        row[0]
+        for row in (
+            db.query(CannedAnswer.date)
+            .filter(CannedAnswer.date >= today)
+            .distinct()
+            .order_by(CannedAnswer.date)
+            .all()
+        )
+    ]
+
+    return templates.TemplateResponse(
+        "ui_all.html",
+        {
+            "request": request,
+            "answers": answers,
+            "distinct_dates": distinct_dates,
+            "start_date": start_date,
+            "end_date": end_date,
+        },
     )
 
-    html = f"""
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <title>All canned answers</title>
-      </head>
-      <body>
-        <h1>All canned answers</h1>
-        <table border="1" cellpadding="4" cellspacing="0">
-          <tr>
-            <th>Date</th>
-            <th>Meeting ID</th>
-            <th>Race</th>
-            <th>Type</th>
-            <th>Use count</th>
-            <th>Prompt</th>
-          </tr>
-          {row_html}
-        </table>
-      </body>
-    </html>
-    """
-
-    return HTMLResponse(content=html)
 
 # --- Healthcheck ---------------------------------------------
 @app.get("/health", tags=["system"])
 def health():
     return {"status": "ok"}
+
+
+# --- Usage bump helper ---------------------------------------
+def bump_usage(answer: CannedAnswer, request: Request) -> None:
+    now = datetime.utcnow()
+
+    # Render passes real client IP via X-Forwarded-For
+    forwarded_for = request.headers.get("x-forwarded-for")
+    client_ip = (
+        forwarded_for.split(",")[0].strip()
+        if forwarded_for
+        else request.client.host
+    )
+    user_agent = request.headers.get("user-agent")
+
+    answer.use_count = (answer.use_count or 0) + 1
+
+    # These fields are optional – only set them if you added them to the model
+    if getattr(answer, "first_used_at", None) is None:
+        setattr(answer, "first_used_at", now)
+        setattr(answer, "first_used_ip", client_ip)
+        setattr(answer, "first_used_ua", user_agent)
+
+    setattr(answer, "last_used_at", now)
+    setattr(answer, "last_used_ip", client_ip)
+    setattr(answer, "last_used_ua", user_agent)
 
 
 # --- JSON API: get / create ----------------------------------
@@ -174,12 +209,13 @@ def get_canned_answer(
     pf_meeting_id: int,
     race_number: int,
     prompt_type: str,
+    request: Request,
     db: Session = Depends(get_db),
 ):
     """
     Fetch a cached answer by key.
 
-    Side-effect: increments use_count each time it's read.
+    Side-effect: increments use_count (and usage metadata) each time it's read.
     """
     key = CannedKey(
         date=date,
@@ -205,8 +241,9 @@ def get_canned_answer(
             detail="No cached answer",
         )
 
-    # 🔢 bump use_count on each read
-    row.use_count = (row.use_count or 0) + 1
+    # bump use_count + IP/UA metadata
+    bump_usage(row, request)
+    db.add(row)
     db.commit()
     db.refresh(row)
 
