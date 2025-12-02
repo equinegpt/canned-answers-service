@@ -124,17 +124,27 @@ def ui_all(
     end_date: Optional[date] = Query(None),
 ):
     """
-    Admin-style view: all canned answers from today onwards,
-    with optional date range filtering.
+    Admin-style view of all canned answers.
+
+    - Default (no params): show today + future based on Melbourne date.
+    - If start_date/end_date are provided: use that explicit range.
     """
+
     today = _today_melbourne()
+    today_iso = today.isoformat()
 
-    q = db.query(CannedAnswer).filter(CannedAnswer.date >= today)
+    # Base query
+    q = db.query(CannedAnswer)
 
-    if start_date:
-        q = q.filter(CannedAnswer.date >= start_date)
-    if end_date:
-        q = q.filter(CannedAnswer.date <= end_date)
+    if start_date or end_date:
+        # Explicit range – don't force "today + future"
+        if start_date:
+            q = q.filter(CannedAnswer.date >= start_date.isoformat())
+        if end_date:
+            q = q.filter(CannedAnswer.date <= end_date.isoformat())
+    else:
+        # Default view: today + future
+        q = q.filter(CannedAnswer.date >= today_iso)
 
     answers = (
         q.order_by(
@@ -146,17 +156,24 @@ def ui_all(
         .all()
     )
 
-    # Distinct dates to render as "jump to" buttons
-    distinct_dates = [
-        row[0]
-        for row in (
-            db.query(CannedAnswer.date)
-            .filter(CannedAnswer.date >= today)
-            .distinct()
-            .order_by(CannedAnswer.date)
-            .all()
-        )
-    ]
+    # Distinct dates for the "Jump to" buttons – normalise to real date objects
+    raw_dates = (
+        db.query(CannedAnswer.date)
+        .distinct()
+        .order_by(CannedAnswer.date)
+        .all()
+    )
+
+    distinct_dates: list[date] = []
+    for (d,) in raw_dates:
+        if isinstance(d, date):
+            distinct_dates.append(d)
+        else:
+            # Assume stored as "YYYY-MM-DD" text
+            try:
+                distinct_dates.append(date.fromisoformat(d))
+            except Exception:
+                continue
 
     return templates.TemplateResponse(
         "ui_all.html",
@@ -168,7 +185,6 @@ def ui_all(
             "end_date": end_date,
         },
     )
-
 
 # --- Healthcheck ---------------------------------------------
 @app.get("/health", tags=["system"])
