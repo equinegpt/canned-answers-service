@@ -27,6 +27,14 @@ class CannedAnswer(Base):
     # How many times this cached answer has been served/used
     use_count = Column(Integer, nullable=False, default=0)
 
+# NEW optional metadata
+    first_used_at = Column(DateTime, nullable=True)
+    first_used_ip = Column(String(64), nullable=True)
+    first_used_ua = Column(String(255), nullable=True)
+
+    last_used_at = Column(DateTime, nullable=True)
+    last_used_ip = Column(String(64), nullable=True)
+    last_used_ua = Column(String(255), nullable=True)
     # Audit
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(
