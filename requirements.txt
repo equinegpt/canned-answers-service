@@ -3,5 +3,4 @@ uvicorn[standard]
 sqlalchemy
 psycopg[binary]
 python-dotenv
-psycopg2-binary==2.9.9; python_version < "3.14"
-
+jinja2
