@@ -53,3 +53,11 @@ class CannedAnswer(Base):
             name="uq_canned_key",
         ),
     )
+class Meeting(Base):
+    __tablename__ = "meetings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    date = Column(Date, index=True)
+    track_name = Column(String, index=True)
+    state = Column(String(3), index=True)
+    pf_meeting_id = Column(Integer, index=True, unique=True)
