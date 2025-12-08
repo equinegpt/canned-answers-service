@@ -302,7 +302,7 @@
                 <thead>
                 <tr>
                     <th>Date</th>
-                    <th>Meeting ID</th>
+                    <th>Meeting</th>
                     <th>Race</th>
                     <th>Type</th>
                     <th>Use count</th>
@@ -314,7 +314,7 @@
                 {% for a in answers %}
                     <tr>
                         <td>{{ a.date.isoformat() }}</td>
-                        <td>{{ a.pf_meeting_id }}</td>
+                        <td>{{ a.meeting_label or a.pf_meeting_id }}</td>
                         <td>R{{ a.race_number }}</td>
                         <td>
                             <span class="pill {{ a.prompt_type|replace(' ', '_') }}">

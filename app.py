@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from zoneinfo import ZoneInfo
 
 from db import Base, engine, SessionLocal
-from models import CannedAnswer
+from models import CannedAnswer, Meeting
 from schemas import CannedKey, CannedAnswerOut, CannedAnswerIn
 
 Base.metadata.create_all(bind=engine)
@@ -152,6 +152,25 @@ def ui_all(
         )
         .all()
     )
+
+    # --- NEW: attach meeting/track names to each answer ---
+    pf_ids = {a.pf_meeting_id for a in answers if a.pf_meeting_id is not None}
+    meeting_lookup = {}
+
+    if pf_ids:
+        rows = (
+            db.query(Meeting.pf_meeting_id, Meeting.track_name, Meeting.state)
+            .filter(Meeting.pf_meeting_id.in_(pf_ids))
+            .all()
+        )
+        meeting_lookup = {
+            r.pf_meeting_id: f"{r.track_name} ({r.state})"
+            for r in rows
+        }
+
+    # Add a transient attribute for the template
+    for a in answers:
+        a.meeting_label = meeting_lookup.get(a.pf_meeting_id)
 
     # Distinct dates for the "Jump to" buttons
     distinct_dates = [
