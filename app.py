@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 from ra_meetings import fetch_meeting_labels
 
 from db import Base, engine, SessionLocal
-from models import CannedAnswer
+from models import CannedAnswer, MeetingLabel
 from schemas import CannedKey, CannedAnswerOut, CannedAnswerIn
 
 Base.metadata.create_all(bind=engine)
@@ -154,20 +154,49 @@ def ui_all(
         .all()
     )
 
-    # --- NEW: attach meeting/track labels from RA-crawler ---
-    meeting_labels = {}
-    if answers:
-        # We only care about rows that actually have a real date
-        dates_for_lookup = [a.date for a in answers if isinstance(a.date, date)]
-        if dates_for_lookup:
-            min_date = min(dates_for_lookup)
-            max_date = max(dates_for_lookup)
-            meeting_labels = fetch_meeting_labels(min_date, max_date)
+    # --- NEW: hydrate meeting labels using local cache + RA-crawler ---
+    pf_ids = {a.pf_meeting_id for a in answers if a.pf_meeting_id is not None}
+    labels: dict[int, str] = {}
 
-        for a in answers:
-            a.meeting_label = meeting_labels.get(a.pf_meeting_id)
+    if pf_ids:
+        # 1) Check local cache first
+        cached_rows = (
+            db.query(MeetingLabel)
+            .filter(MeetingLabel.pf_meeting_id.in_(pf_ids))
+            .all()
+        )
+        labels = {r.pf_meeting_id: r.label for r in cached_rows}
+        missing_ids = pf_ids - labels.keys()
 
-    # Distinct dates for the "Jump to" buttons
+        # 2) For any missing, ask RA-crawler (within the current date range)
+        if missing_ids:
+            # pick a sensible range to call RA with
+            # (fall back to all known dates in answers if start/end are None)
+            dates_for_lookup = [a.date for a in answers if isinstance(a.date, date)]
+            if dates_for_lookup:
+                lo = min(dates_for_lookup)
+                hi = max(dates_for_lookup)
+            else:
+                lo = start_date
+                hi = end_date
+
+            ra_labels = fetch_meeting_labels(lo, hi)
+
+            # 3) Store whatever RA knows into the cache
+            for mid in missing_ids:
+                label = ra_labels.get(mid)
+                if not label:
+                    continue
+                labels[mid] = label
+                db.add(MeetingLabel(pf_meeting_id=mid, label=label))
+
+            db.commit()
+
+    # Attach label to each answer for the template
+    for a in answers:
+        a.meeting_label = labels.get(a.pf_meeting_id)
+
+    # Distinct dates for the "Jump to" buttons (unchanged)
     distinct_dates = [
         row[0]
         for row in (
@@ -177,17 +206,6 @@ def ui_all(
             .all()
         )
     ]
-
-    return templates.TemplateResponse(
-        "ui_all.html",
-        {
-            "request": request,
-            "answers": answers,
-            "distinct_dates": distinct_dates,
-            "start_date": start_date,
-            "end_date": end_date,
-        },
-    )
 
 # --- Healthcheck ---------------------------------------------
 @app.get("/health", tags=["system"])
@@ -322,4 +340,75 @@ def create_canned_answer(
         race_number=row.race_number,
         prompt_type=row.prompt_type,
         raw_response=row.raw_response,
+    )
+@app.get("/ui/day/mobile", response_class=HTMLResponse)
+def ui_day_mobile(
+    date: date,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    Mobile-friendly view of canned answers for a given date.
+
+    - Groups by meeting (track)
+    - Each track is collapsible
+    - Shows Race + prompt text (tips)
+    """
+
+    # Same query logic as ui_day
+    rows = (
+        db.query(CannedAnswer)
+        .filter(CannedAnswer.date == date)
+        .order_by(
+            CannedAnswer.pf_meeting_id,
+            CannedAnswer.race_number,
+            CannedAnswer.prompt_type,
+        )
+        .all()
+    )
+
+    if not rows:
+        rows = (
+            db.query(CannedAnswer)
+            .filter(CannedAnswer.date == date.isoformat())
+            .order_by(
+                CannedAnswer.pf_meeting_id,
+                CannedAnswer.race_number,
+                CannedAnswer.prompt_type,
+            )
+            .all()
+        )
+
+    # Get track labels from cache / RA
+    meeting_labels = {}
+    if rows:
+        # use a 1-day window for RA
+        labels = fetch_meeting_labels(date, date)
+        meeting_labels = labels or {}
+
+    # Group rows by meeting
+    meetings = {}
+    for r in rows:
+        mid = r.pf_meeting_id
+        if mid not in meetings:
+            label = meeting_labels.get(mid) or str(mid)
+            meetings[mid] = {
+                "pf_meeting_id": mid,
+                "label": label,
+                "rows": [],
+            }
+        meetings[mid]["rows"].append(r)
+
+    meeting_list = sorted(
+        meetings.values(),
+        key=lambda m: m["label"]
+    )
+
+    return templates.TemplateResponse(
+        "ui_day_mobile.html",
+        {
+            "request": request,
+            "date": date,
+            "meetings": meeting_list,
+        },
     )

@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Canned answers — {{ date }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <style>
+    :root {
+      --brand-green: #18CB96;
+      --brand-dark: #020617;
+      --card-bg: #0b1220;
+      --border-subtle: #1f2937;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--brand-dark);
+      color: #f9fafb;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      padding: 10px 16px;
+      background: linear-gradient(120deg, #18CB96, #22C55E);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    header .sub {
+      font-size: 12px;
+      opacity: 0.85;
+    }
+
+    main {
+      padding: 12px 12px 32px;
+      max-width: 640px;
+      margin: 0 auto;
+    }
+
+    .empty-state {
+      margin-top: 40px;
+      font-size: 14px;
+      text-align: center;
+      opacity: 0.8;
+    }
+
+    details.meeting {
+      margin-bottom: 10px;
+      border-radius: 14px;
+      background: rgba(15,23,42,0.96);
+      border: 1px solid rgba(148,163,184,0.35);
+      overflow: hidden;
+    }
+
+    details.meeting[open] {
+      border-color: rgba(56,189,248,0.7);
+    }
+
+    details.meeting summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    details.meeting summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .track-title {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .track-meta {
+      font-size: 11px;
+      opacity: 0.75;
+    }
+
+    .chip-id {
+      font-size: 11px;
+      border-radius: 999px;
+      padding: 2px 8px;
+      border: 1px solid rgba(148,163,184,0.6);
+      background: rgba(15,23,42,0.9);
+      margin-left: 8px;
+      white-space: nowrap;
+    }
+
+    .races {
+      padding: 4px 8px 10px;
+      border-top: 1px solid rgba(15,23,42,0.9);
+    }
+
+    .race-card {
+      margin-top: 6px;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: var(--card-bg);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .race-meta {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 4px;
+      font-size: 12px;
+    }
+
+    .badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(148,163,184,0.7);
+      background: rgba(15,23,42,0.9);
+    }
+
+    .badge-type {
+      border-color: rgba(56,189,248,0.7);
+      background: rgba(56,189,248,0.12);
+    }
+
+    .race-text {
+      font-size: 13px;
+      white-space: pre-wrap;
+      line-height: 1.35;
+      opacity: 0.96;
+    }
+
+    @media (min-width: 720px) {
+      main {
+        padding-top: 16px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Canned answers</h1>
+  <div class="sub">{{ date }}</div>
+</header>
+
+<main>
+  {% if not meetings %}
+    <div class="empty-state">
+      No canned answers for this date.
+    </div>
+  {% endif %}
+
+  {% for m in meetings %}
+    <details class="meeting" {% if loop.first %}open{% endif %}>
+      <summary>
+        <div>
+          <div class="track-title">{{ m.label }}</div>
+          <div class="track-meta">Meeting ID {{ m.pf_meeting_id }}</div>
+        </div>
+        <div class="chip-id">
+          {{ m.rows|length }} race{{ '' if m.rows|length == 1 else 's' }}
+        </div>
+      </summary>
+
+      <div class="races">
+        {% for row in m.rows %}
+          <div class="race-card">
+            <div class="race-meta">
+              <span class="badge">R{{ row.race_number }}</span>
+              <span class="badge badge-type">{{ row.prompt_type }}</span>
+              {# If you later add a tab_no field to CannedAnswer, show it here:
+              {% if row.tab_no is defined %}
+                <span class="badge">TAB {{ row.tab_no }}</span>
+              {% endif %}
+              #}
+            </div>
+            <div class="race-text">
+              {{ row.prompt_text or "" }}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </details>
+  {% endfor %}
+</main>
+
+</body>
+</html>
