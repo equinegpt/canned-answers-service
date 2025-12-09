@@ -14,9 +14,10 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from zoneinfo import ZoneInfo
+from ra_meetings import fetch_meeting_labels
 
 from db import Base, engine, SessionLocal
-from models import CannedAnswer, Meeting
+from models import CannedAnswer
 from schemas import CannedKey, CannedAnswerOut, CannedAnswerIn
 
 Base.metadata.create_all(bind=engine)
@@ -153,24 +154,18 @@ def ui_all(
         .all()
     )
 
-    # --- NEW: attach meeting/track names to each answer ---
-    pf_ids = {a.pf_meeting_id for a in answers if a.pf_meeting_id is not None}
-    meeting_lookup = {}
+    # --- NEW: attach meeting/track labels from RA-crawler ---
+    meeting_labels = {}
+    if answers:
+        # We only care about rows that actually have a real date
+        dates_for_lookup = [a.date for a in answers if isinstance(a.date, date)]
+        if dates_for_lookup:
+            min_date = min(dates_for_lookup)
+            max_date = max(dates_for_lookup)
+            meeting_labels = fetch_meeting_labels(min_date, max_date)
 
-    if pf_ids:
-        rows = (
-            db.query(Meeting.pf_meeting_id, Meeting.track_name, Meeting.state)
-            .filter(Meeting.pf_meeting_id.in_(pf_ids))
-            .all()
-        )
-        meeting_lookup = {
-            r.pf_meeting_id: f"{r.track_name} ({r.state})"
-            for r in rows
-        }
-
-    # Add a transient attribute for the template
-    for a in answers:
-        a.meeting_label = meeting_lookup.get(a.pf_meeting_id)
+        for a in answers:
+            a.meeting_label = meeting_labels.get(a.pf_meeting_id)
 
     # Distinct dates for the "Jump to" buttons
     distinct_dates = [
