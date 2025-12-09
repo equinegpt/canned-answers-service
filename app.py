@@ -206,6 +206,16 @@ def ui_all(
             .all()
         )
     ]
+    return templates.TemplateResponse(
+        "ui_all.html",
+        {
+            "request": request,
+            "answers": answers,
+            "distinct_dates": distinct_dates,
+            "start_date": start_date,
+            "end_date": end_date,
+        },
+    )
 
 # --- Healthcheck ---------------------------------------------
 @app.get("/health", tags=["system"])
