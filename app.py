@@ -17,8 +17,15 @@ from zoneinfo import ZoneInfo
 from ra_meetings import fetch_meeting_labels
 
 from db import Base, engine, SessionLocal
-from models import CannedAnswer, MeetingLabel
-from schemas import CannedKey, CannedAnswerOut, CannedAnswerIn
+from models import CannedAnswer, MeetingLabel, FreeformQuestion
+from schemas import (
+    CannedKey, CannedAnswerOut, CannedAnswerIn,
+    FreeformQuestionIn, FreeformQuestionOut, FreeformMatchResult,
+)
+from freeform_matching import (
+    normalize_question, tokenize_question, tokens_to_json,
+    json_to_tokens, find_best_match,
+)
 
 Base.metadata.create_all(bind=engine)
 
@@ -416,6 +423,204 @@ def ui_day_mobile(
 
     return templates.TemplateResponse(
         "ui_day_mobile.html",
+        {
+            "request": request,
+            "date": date,
+            "meetings": meeting_list,
+        },
+    )
+
+
+# --- Freeform Question Endpoints --------------------------------
+
+@app.post("/freeform", response_model=FreeformQuestionOut, tags=["freeform"])
+def create_freeform_question(
+    payload: FreeformQuestionIn,
+    db: Session = Depends(get_db),
+):
+    """
+    Store a freeform Q&A pair with normalized tokens for fuzzy matching.
+
+    - Stores original question as-is
+    - Computes and stores normalized version + token array
+    - Idempotent: returns existing if exact same normalized question already exists for this race
+    """
+    # Normalize and tokenize
+    normalized = normalize_question(payload.question)
+    tokens = tokenize_question(normalized)
+    tokens_json = tokens_to_json(tokens)
+
+    # Check for exact duplicate (same normalized question for same race)
+    existing = (
+        db.query(FreeformQuestion)
+        .filter_by(
+            date=payload.date,
+            pf_meeting_id=payload.pf_meeting_id,
+            race_number=payload.race_number,
+            question_normalized=normalized,
+        )
+        .one_or_none()
+    )
+
+    if existing:
+        return FreeformQuestionOut(
+            date=existing.date,
+            pf_meeting_id=existing.pf_meeting_id,
+            race_number=existing.race_number,
+            question=existing.question,
+            raw_response=existing.raw_response,
+            use_count=existing.use_count,
+        )
+
+    row = FreeformQuestion(
+        date=payload.date,
+        pf_meeting_id=payload.pf_meeting_id,
+        race_number=payload.race_number,
+        question=payload.question,
+        question_normalized=normalized,
+        question_tokens=tokens_json,
+        raw_response=payload.raw_response,
+        use_count=0,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+
+    return FreeformQuestionOut(
+        date=row.date,
+        pf_meeting_id=row.pf_meeting_id,
+        race_number=row.race_number,
+        question=row.question,
+        raw_response=row.raw_response,
+        use_count=row.use_count,
+    )
+
+
+@app.get("/freeform/match", response_model=FreeformMatchResult, tags=["freeform"])
+def match_freeform_question(
+    question: str,
+    date: date,
+    pf_meeting_id: int,
+    race_number: int,
+    threshold: float = Query(default=0.70, ge=0.0, le=1.0),
+    db: Session = Depends(get_db),
+):
+    """
+    Find a cached freeform question matching the query using fuzzy matching.
+
+    Algorithm:
+    1. Normalize query: lowercase, remove punctuation
+    2. Tokenize and remove stop words
+    3. Search only within same race (date + pf_meeting_id + race_number)
+    4. Calculate Jaccard similarity for each candidate
+    5. Return best match if confidence >= threshold, else 404
+    """
+    # Normalize and tokenize the query
+    normalized = normalize_question(question)
+    query_tokens = tokenize_question(normalized)
+
+    if not query_tokens:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Query contains only stop words or is empty",
+        )
+
+    # Fetch all candidates for this race (indexed query, fast)
+    candidates_db = (
+        db.query(FreeformQuestion)
+        .filter_by(
+            date=date,
+            pf_meeting_id=pf_meeting_id,
+            race_number=race_number,
+        )
+        .all()
+    )
+
+    if not candidates_db:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No matching question found",
+        )
+
+    # Build candidates list with parsed tokens
+    candidates = [
+        (row, json_to_tokens(row.question_tokens))
+        for row in candidates_db
+    ]
+
+    # Find best match
+    result = find_best_match(query_tokens, candidates, threshold)
+
+    if result is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No matching question found",
+        )
+
+    best_row, confidence = result
+
+    # Bump usage count on match
+    best_row.use_count = (best_row.use_count or 0) + 1
+    db.add(best_row)
+    db.commit()
+
+    return FreeformMatchResult(
+        question=best_row.question,
+        raw_response=best_row.raw_response,
+        confidence=round(confidence, 4),
+    )
+
+
+@app.get("/ui/freeform", response_class=HTMLResponse)
+def ui_freeform(
+    date: date,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """
+    UI view showing all freeform Q&As for a date, grouped by meeting/race.
+    """
+    rows = (
+        db.query(FreeformQuestion)
+        .filter(FreeformQuestion.date == date)
+        .order_by(
+            FreeformQuestion.pf_meeting_id,
+            FreeformQuestion.race_number,
+            FreeformQuestion.created_at,
+        )
+        .all()
+    )
+
+    # Get meeting labels
+    meeting_labels = {}
+    if rows:
+        labels = fetch_meeting_labels(date, date)
+        meeting_labels = labels or {}
+
+    # Group by meeting, then by race
+    meetings = {}
+    for r in rows:
+        mid = r.pf_meeting_id
+        if mid not in meetings:
+            label = meeting_labels.get(mid) or str(mid)
+            meetings[mid] = {
+                "pf_meeting_id": mid,
+                "label": label,
+                "races": {},
+            }
+
+        race_num = r.race_number
+        if race_num not in meetings[mid]["races"]:
+            meetings[mid]["races"][race_num] = []
+        meetings[mid]["races"][race_num].append(r)
+
+    # Sort meetings and races
+    meeting_list = sorted(meetings.values(), key=lambda m: m["label"])
+    for m in meeting_list:
+        m["races"] = dict(sorted(m["races"].items()))
+
+    return templates.TemplateResponse(
+        "ui_freeform.html",
         {
             "request": request,
             "date": date,

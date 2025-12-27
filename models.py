@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Text,
     UniqueConstraint,
+    Index,
 )
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -73,3 +74,42 @@ class MeetingLabel(Base):
     id = Column(Integer, primary_key=True, index=True)
     pf_meeting_id = Column(Integer, unique=True, index=True, nullable=False)
     label = Column(String(200), nullable=False)
+
+
+class FreeformQuestion(Base):
+    """
+    Cached freeform Q&A pairs with normalized tokens for fuzzy matching.
+    """
+    __tablename__ = "freeform_questions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
+    # Key fields (composite index for race-scoped lookups)
+    date = Column(Date, nullable=False)
+    pf_meeting_id = Column(Integer, nullable=False)
+    race_number = Column(Integer, nullable=False)
+
+    # Question storage
+    question = Column(Text, nullable=False)              # Original question as-is
+    question_normalized = Column(Text, nullable=False)   # Lowercase, punctuation stripped
+    question_tokens = Column(Text, nullable=False)       # JSON array of tokens (stop words removed)
+
+    # Response
+    raw_response = Column(Text, nullable=False)
+
+    # Usage metrics
+    use_count = Column(Integer, nullable=False, default=0)
+
+    # Audit
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    __table_args__ = (
+        # Composite index for race-scoped queries (critical for performance)
+        Index("ix_freeform_race_scope", "date", "pf_meeting_id", "race_number"),
+    )

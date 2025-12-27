@@ -1,0 +1,225 @@
+<!-- templates/ui_freeform.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Freeform Q&A - {{ date.isoformat() }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <style>
+        :root {
+            --brand-green: #18CB96;
+            --brand-dark: #111827;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: #020617;
+            color: #F9FAFB;
+        }
+
+        header {
+            background: linear-gradient(120deg, #18CB96, #22C55E);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        header .sub {
+            font-size: 12px;
+            opacity: 0.85;
+        }
+
+        main {
+            padding: 20px 24px 40px;
+        }
+
+        .meeting-card {
+            background: rgba(15,23,42,0.96);
+            border-radius: 16px;
+            border: 1px solid rgba(148,163,184,0.35);
+            padding: 16px 18px 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 18px 40px rgba(0,0,0,0.5);
+        }
+
+        .meeting-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--brand-green);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .meeting-title::before {
+            content: "";
+            width: 4px;
+            height: 20px;
+            background: var(--brand-green);
+            border-radius: 2px;
+        }
+
+        .race-section {
+            margin-left: 16px;
+            margin-bottom: 20px;
+        }
+
+        .race-header {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            padding: 6px 12px;
+            background: rgba(24,203,150,0.12);
+            border-left: 3px solid var(--brand-green);
+            border-radius: 0 8px 8px 0;
+        }
+
+        .qa-item {
+            background: rgba(30,41,59,0.6);
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-bottom: 10px;
+            border: 1px solid rgba(148,163,184,0.2);
+        }
+
+        .qa-item:hover {
+            background: rgba(30,64,175,0.25);
+            border-color: rgba(148,163,184,0.35);
+        }
+
+        .qa-question {
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: #E5E7EB;
+            font-size: 14px;
+        }
+
+        .qa-question::before {
+            content: "Q: ";
+            color: var(--brand-green);
+            font-weight: 600;
+        }
+
+        .qa-response {
+            font-size: 13px;
+            opacity: 0.85;
+            white-space: pre-wrap;
+            line-height: 1.5;
+            padding-left: 8px;
+            border-left: 2px solid rgba(148,163,184,0.3);
+            margin-left: 4px;
+        }
+
+        .qa-meta {
+            font-size: 11px;
+            opacity: 0.6;
+            margin-top: 10px;
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .qa-meta span {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .count-chip {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: rgba(15,23,42,0.9);
+            border: 1px solid rgba(148,163,184,0.65);
+            font-size: 11px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            opacity: 0.7;
+        }
+
+        .empty-state p {
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+
+        .empty-state .hint {
+            font-size: 13px;
+            opacity: 0.7;
+        }
+
+        @media (max-width: 768px) {
+            main {
+                padding: 14px 12px 32px;
+            }
+            .meeting-card {
+                padding: 12px 10px 16px;
+            }
+            .race-section {
+                margin-left: 8px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+<header>
+    <div>
+        <h1>Freeform Q&A</h1>
+        <div class="sub">{{ date.isoformat() }}</div>
+    </div>
+</header>
+
+<main>
+    {% if meetings %}
+        {% for meeting in meetings %}
+        <div class="meeting-card">
+            <div class="meeting-title">{{ meeting.label }}</div>
+            {% for race_num, questions in meeting.races.items() %}
+            <div class="race-section">
+                <div class="race-header">Race {{ race_num }}</div>
+                {% for q in questions %}
+                <div class="qa-item">
+                    <div class="qa-question">{{ q.question }}</div>
+                    <div class="qa-response">{{ q.raw_response }}</div>
+                    <div class="qa-meta">
+                        <span>Uses: <span class="count-chip">{{ q.use_count }}</span></span>
+                        <span>Created: {{ q.created_at.strftime('%Y-%m-%d %H:%M') }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="empty-state">
+            <p>No freeform Q&As found for this date.</p>
+            <div class="hint">Questions will appear here once cached via POST /freeform</div>
+        </div>
+    {% endif %}
+</main>
+
+</body>
+</html>
