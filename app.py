@@ -627,3 +627,82 @@ def ui_freeform(
             "meetings": meeting_list,
         },
     )
+
+
+@app.get("/ui/freeform/stats", response_class=HTMLResponse)
+def ui_freeform_stats(
+    request: Request,
+    db: Session = Depends(get_db),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+):
+    """
+    Analytics view for freeform question caching - shows fuzzy match performance.
+    """
+    today = _today_melbourne()
+
+    # Default: last 7 days if no range supplied
+    if start_date is None and end_date is None:
+        end_date = today
+        start_date = today - __import__('datetime').timedelta(days=7)
+
+    # Query all freeform questions in range
+    q = db.query(FreeformQuestion)
+    if start_date is not None:
+        q = q.filter(FreeformQuestion.date >= start_date)
+    if end_date is not None:
+        q = q.filter(FreeformQuestion.date <= end_date)
+
+    all_questions = q.all()
+
+    # Calculate stats
+    total_cached = len(all_questions)
+    total_matches = sum(fq.use_count for fq in all_questions)
+    questions_with_matches = sum(1 for fq in all_questions if fq.use_count > 0)
+
+    # Group by date for daily breakdown
+    daily_stats = {}
+    for fq in all_questions:
+        d = fq.date
+        if d not in daily_stats:
+            daily_stats[d] = {"cached": 0, "matches": 0, "questions_matched": 0}
+        daily_stats[d]["cached"] += 1
+        daily_stats[d]["matches"] += fq.use_count
+        if fq.use_count > 0:
+            daily_stats[d]["questions_matched"] += 1
+
+    # Sort by date descending
+    daily_breakdown = sorted(
+        [{"date": d, **stats} for d, stats in daily_stats.items()],
+        key=lambda x: x["date"],
+        reverse=True
+    )
+
+    # Top matched questions (most reused)
+    top_questions = sorted(
+        [fq for fq in all_questions if fq.use_count > 0],
+        key=lambda x: x.use_count,
+        reverse=True
+    )[:20]
+
+    # Get meeting labels for top questions
+    meeting_labels = {}
+    if top_questions and start_date and end_date:
+        labels = fetch_meeting_labels(start_date, end_date)
+        meeting_labels = labels or {}
+
+    return templates.TemplateResponse(
+        "ui_freeform_stats.html",
+        {
+            "request": request,
+            "start_date": start_date,
+            "end_date": end_date,
+            "total_cached": total_cached,
+            "total_matches": total_matches,
+            "questions_with_matches": questions_with_matches,
+            "match_rate": round((questions_with_matches / total_cached * 100), 1) if total_cached > 0 else 0,
+            "daily_breakdown": daily_breakdown,
+            "top_questions": top_questions,
+            "meeting_labels": meeting_labels,
+        },
+    )
