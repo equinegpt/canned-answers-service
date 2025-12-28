@@ -343,41 +343,10 @@
         </div>
     </section>
 
-    <!-- Daily Breakdown -->
+    <!-- All Cached Questions -->
     <section class="card">
-        <div class="card-title">Daily Breakdown</div>
-        {% if daily_breakdown %}
-        <div class="table-wrap">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Cached</th>
-                        <th>Matches</th>
-                        <th>Questions Reused</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for day in daily_breakdown %}
-                    <tr>
-                        <td>{{ day.date.isoformat() }}</td>
-                        <td><span class="count-chip">{{ day.cached }}</span></td>
-                        <td><span class="count-chip success">{{ day.matches }}</span></td>
-                        <td>{{ day.questions_matched }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-        {% else %}
-        <div class="empty-state">No data in this date range</div>
-        {% endif %}
-    </section>
-
-    <!-- Top Questions -->
-    <section class="card">
-        <div class="card-title">Top Matched Questions</div>
-        {% if top_questions %}
+        <div class="card-title">All Cached Questions</div>
+        {% if all_questions %}
         <div class="table-wrap">
             <table>
                 <thead>
@@ -390,20 +359,20 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for q in top_questions %}
+                    {% for q in all_questions %}
                     <tr>
                         <td>{{ q.date.isoformat() }}</td>
                         <td>{{ meeting_labels.get(q.pf_meeting_id) or q.pf_meeting_id }}</td>
                         <td>R{{ q.race_number }}</td>
                         <td><div class="question-text">{{ q.question }}</div></td>
-                        <td><span class="count-chip success">{{ q.use_count }}</span></td>
+                        <td><span class="count-chip {% if q.use_count > 0 %}success{% endif %}">{{ q.use_count }}</span></td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
         {% else %}
-        <div class="empty-state">No questions have been matched yet</div>
+        <div class="empty-state">No questions cached yet</div>
         {% endif %}
     </section>
 </main>

@@ -678,16 +678,16 @@ def ui_freeform_stats(
         reverse=True
     )
 
-    # Top matched questions (most reused)
-    top_questions = sorted(
-        [fq for fq in all_questions if fq.use_count > 0],
-        key=lambda x: x.use_count,
+    # All questions sorted by date desc, then meeting, then race
+    all_questions_sorted = sorted(
+        all_questions,
+        key=lambda x: (x.date, x.pf_meeting_id, x.race_number),
         reverse=True
-    )[:20]
+    )
 
-    # Get meeting labels for top questions
+    # Get meeting labels for all questions
     meeting_labels = {}
-    if top_questions and start_date and end_date:
+    if all_questions and start_date and end_date:
         labels = fetch_meeting_labels(start_date, end_date)
         meeting_labels = labels or {}
 
@@ -702,7 +702,7 @@ def ui_freeform_stats(
             "questions_with_matches": questions_with_matches,
             "match_rate": round((questions_with_matches / total_cached * 100), 1) if total_cached > 0 else 0,
             "daily_breakdown": daily_breakdown,
-            "top_questions": top_questions,
+            "all_questions": all_questions_sorted,
             "meeting_labels": meeting_labels,
         },
     )
