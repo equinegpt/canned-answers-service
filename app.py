@@ -313,10 +313,11 @@ def get_canned_answer(
 @app.post("/canned", response_model=CannedAnswerOut, tags=["canned"])
 def create_canned_answer(
     payload: CannedAnswerIn,
+    force: bool = Query(False, description="Overwrite existing entry if true"),
     db: Session = Depends(get_db),
 ):
     """
-    Idempotent create: first write wins.
+    Idempotent create: first write wins (unless force=true).
     """
     existing = (
         db.query(CannedAnswer)
@@ -328,6 +329,18 @@ def create_canned_answer(
         )
         .one_or_none()
     )
+
+    if existing and force:
+        existing.raw_response = payload.raw_response
+        db.commit()
+        db.refresh(existing)
+        return CannedAnswerOut(
+            date=existing.date,
+            pf_meeting_id=existing.pf_meeting_id,
+            race_number=existing.race_number,
+            prompt_type=existing.prompt_type,
+            raw_response=existing.raw_response,
+        )
 
     if existing:
         return CannedAnswerOut(
