@@ -1,5 +1,6 @@
 # schemas.py
-from datetime import date
+from datetime import date, datetime
+from typing import Optional
 from pydantic import BaseModel, Field
 
 
@@ -12,6 +13,8 @@ class CannedKey(BaseModel):
 
 class CannedAnswerOut(CannedKey):
     raw_response: str
+    created_at: Optional[datetime] = None
+    use_count: Optional[int] = None
 
 
 class CannedAnswerIn(CannedKey):

@@ -307,6 +307,8 @@ def get_canned_answer(
         race_number=row.race_number,
         prompt_type=row.prompt_type,
         raw_response=row.raw_response,
+        created_at=row.created_at,
+        use_count=row.use_count,
     )
 
 
@@ -340,6 +342,8 @@ def create_canned_answer(
             race_number=existing.race_number,
             prompt_type=existing.prompt_type,
             raw_response=existing.raw_response,
+            created_at=existing.created_at,
+            use_count=existing.use_count,
         )
 
     if existing:
@@ -349,6 +353,8 @@ def create_canned_answer(
             race_number=existing.race_number,
             prompt_type=existing.prompt_type,
             raw_response=existing.raw_response,
+            created_at=existing.created_at,
+            use_count=existing.use_count,
         )
 
     row = CannedAnswer(
@@ -370,6 +376,8 @@ def create_canned_answer(
         race_number=row.race_number,
         prompt_type=row.prompt_type,
         raw_response=row.raw_response,
+        created_at=row.created_at,
+        use_count=row.use_count,
     )
 @app.get("/ui/day/mobile", response_class=HTMLResponse)
 def ui_day_mobile(
