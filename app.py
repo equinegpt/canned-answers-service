@@ -109,6 +109,31 @@ def debug_ui_test(db: Session = Depends(get_db)):
         errors.append(f"Stats calc OK: cached={total_cached}, matches={total_matches}")
     except Exception as e:
         errors.append(f"Freeform stats FAIL: {_tb.format_exc()}")
+    # Test 5: full TemplateResponse render
+    try:
+        from starlette.requests import Request as _Req
+        from starlette.datastructures import URL
+        scope = {"type": "http", "method": "GET", "path": "/debug/ui-test",
+                 "query_string": b"", "headers": []}
+        fake_request = _Req(scope)
+        resp = templates.TemplateResponse(
+            "ui_freeform_stats.html",
+            {
+                "request": fake_request,
+                "start_date": start_date,
+                "end_date": end_date,
+                "total_cached": total_cached,
+                "total_matches": total_matches,
+                "questions_with_matches": 0,
+                "match_rate": 0,
+                "daily_breakdown": [],
+                "all_questions": all_questions,
+                "meeting_labels": {},
+            },
+        )
+        errors.append(f"TemplateResponse OK: status={resp.status_code}, body_len={len(resp.body)}")
+    except Exception as e:
+        errors.append(f"TemplateResponse FAIL: {_tb.format_exc()}")
     return {"tests": errors}
 
 
