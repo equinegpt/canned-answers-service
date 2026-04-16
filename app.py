@@ -74,6 +74,44 @@ def _today_melbourne() -> date:
     return datetime.now(ZoneInfo("Australia/Melbourne")).date()
 
 
+# Temporary debug endpoint — remove after diagnosing 500s
+@app.get("/debug/ui-test")
+def debug_ui_test(db: Session = Depends(get_db)):
+    import traceback as _tb
+    errors = []
+    try:
+        rows = db.query(CannedAnswer).limit(1).all()
+        errors.append(f"CannedAnswer query OK: {len(rows)} rows")
+    except Exception as e:
+        errors.append(f"CannedAnswer query FAIL: {_tb.format_exc()}")
+    try:
+        rows = db.query(FreeformQuestion).limit(1).all()
+        errors.append(f"FreeformQuestion query OK: {len(rows)} rows")
+    except Exception as e:
+        errors.append(f"FreeformQuestion query FAIL: {_tb.format_exc()}")
+    try:
+        html = templates.get_template("ui_freeform_stats.html")
+        errors.append(f"Template load OK: {html}")
+    except Exception as e:
+        errors.append(f"Template load FAIL: {_tb.format_exc()}")
+    # Test 4: full render of freeform stats
+    try:
+        today = _today_melbourne()
+        end_date = today
+        start_date = today - timedelta(days=7)
+        q = db.query(FreeformQuestion)
+        q = q.filter(FreeformQuestion.date >= start_date)
+        q = q.filter(FreeformQuestion.date <= end_date)
+        all_questions = q.all()
+        errors.append(f"Freeform query OK: {len(all_questions)} questions")
+        total_cached = len(all_questions)
+        total_matches = sum(fq.use_count for fq in all_questions)
+        errors.append(f"Stats calc OK: cached={total_cached}, matches={total_matches}")
+    except Exception as e:
+        errors.append(f"Freeform stats FAIL: {_tb.format_exc()}")
+    return {"tests": errors}
+
+
 # --- UI: per-day view ----------------------------------------
 @app.get("/ui/day", response_class=HTMLResponse)
 def ui_day(
