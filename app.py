@@ -1,5 +1,5 @@
 # app.py
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import (
@@ -28,6 +28,33 @@ from freeform_matching import (
 )
 
 Base.metadata.create_all(bind=engine)
+
+# --- Auto-migrate missing columns (no Alembic) ---------------
+def _auto_migrate():
+    """Add columns that were introduced after the initial create_all."""
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+
+    # canned_answers: columns added after initial deploy
+    if insp.has_table("canned_answers"):
+        existing = {c["name"] for c in insp.get_columns("canned_answers")}
+        migrations = [
+            ("use_count", "INTEGER NOT NULL DEFAULT 0"),
+            ("first_used_at", "TIMESTAMP"),
+            ("first_used_ip", "VARCHAR(64)"),
+            ("first_used_ua", "VARCHAR(255)"),
+            ("last_used_at", "TIMESTAMP"),
+            ("last_used_ip", "VARCHAR(64)"),
+            ("last_used_ua", "VARCHAR(255)"),
+        ]
+        with engine.begin() as conn:
+            for col_name, col_type in migrations:
+                if col_name not in existing:
+                    conn.execute(text(
+                        f'ALTER TABLE canned_answers ADD COLUMN {col_name} {col_type}'
+                    ))
+
+_auto_migrate()
 
 app = FastAPI(title="Canned Answers Service")
 templates = Jinja2Templates(directory="templates")
@@ -665,7 +692,7 @@ def ui_freeform_stats(
     # Default: last 7 days if no range supplied
     if start_date is None and end_date is None:
         end_date = today
-        start_date = today - __import__('datetime').timedelta(days=7)
+        start_date = today - timedelta(days=7)
 
     # Query all freeform questions in range
     q = db.query(FreeformQuestion)
